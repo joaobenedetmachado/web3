@@ -25,11 +25,24 @@ contract TodoList {
     }
 
     // ----------------------------------------------------------
+    // 1b. STRUCT — define o tipo "User" (perfil on-chain)
+    // ----------------------------------------------------------
+    struct User {
+        address account;    // "id" natural do usuário (carteira)
+        string  name;       // nome público
+        string  bio;        // texto curto
+        uint256 createdAt;  // timestamp de criação
+    }
+
+    // ----------------------------------------------------------
     // 2. STATE VARIABLES — ficam gravadas NA blockchain forever
     // ----------------------------------------------------------
     uint256 private nextId = 1;                      // contador de IDs
     mapping(uint256 => Task) private tasks;          // id => Task
     mapping(address => uint256[]) private ownerIds;  // owner => lista de ids
+
+    mapping(address => User) private users;          // account => User
+    mapping(address => bool) private userExistsMap;  // account => existe?
 
     // ----------------------------------------------------------
     // 3. EVENTS — emitidos em transações, lidos off-chain
@@ -39,6 +52,10 @@ contract TodoList {
     event TaskUpdated(uint256 indexed id, string newTitle);
     event TaskToggled(uint256 indexed id, bool completed);
     event TaskDeleted(uint256 indexed id);
+
+    event UserCreated(address indexed account, string name);
+    event UserUpdated(address indexed account, string newName, string newBio);
+    event UserDeleted(address indexed account);
 
     // ----------------------------------------------------------
     // 4. MODIFIER — reutiliza validações (como um "guard")
@@ -50,6 +67,16 @@ contract TodoList {
 
     modifier taskExists(uint256 id) {
         require(tasks[id].owner != address(0), "Tarefa nao existe");
+        _;
+    }
+
+    modifier userExists(address account) {
+        require(userExistsMap[account], "Usuario nao existe");
+        _;
+    }
+
+    modifier onlySelf(address account) {
+        require(account == msg.sender, "Nao e o proprio usuario");
         _;
     }
 
@@ -144,5 +171,66 @@ contract TodoList {
     // ----------------------------------------------------------
     function totalTasks() external view returns (uint256) {
         return nextId - 1;
+    }
+
+    // =============================================================
+    //  USER CRUD — exemplo paralelo ao Task CRUD (perfil por address)
+    // =============================================================
+
+    // ----------------------------------------------------------
+    // CREATE — cria o perfil do caller
+    // ----------------------------------------------------------
+    function createUser(string calldata name, string calldata bio) external {
+        require(!userExistsMap[msg.sender], "Usuario ja existe");
+        require(bytes(name).length > 0, "Nome nao pode ser vazio");
+
+        users[msg.sender] = User({
+            account: msg.sender,
+            name: name,
+            bio: bio,
+            createdAt: block.timestamp
+        });
+        userExistsMap[msg.sender] = true;
+
+        emit UserCreated(msg.sender, name);
+    }
+
+    // ----------------------------------------------------------
+    // READ — lê um usuário por address (view = não gasta gas)
+    // ----------------------------------------------------------
+    function getUser(address account)
+        external
+        view
+        userExists(account)
+        returns (User memory)
+    {
+        return users[account];
+    }
+
+    // READ — lê o perfil do caller
+    function getMyUser() external view userExists(msg.sender) returns (User memory) {
+        return users[msg.sender];
+    }
+
+    // ----------------------------------------------------------
+    // UPDATE — atualiza nome/bio (só o próprio usuário)
+    // ----------------------------------------------------------
+    function updateMyUser(string calldata newName, string calldata newBio)
+        external
+        userExists(msg.sender)
+    {
+        require(bytes(newName).length > 0, "Nome nao pode ser vazio");
+        users[msg.sender].name = newName;
+        users[msg.sender].bio = newBio;
+        emit UserUpdated(msg.sender, newName, newBio);
+    }
+
+    // ----------------------------------------------------------
+    // DELETE — remove o perfil (só o próprio usuário)
+    // ----------------------------------------------------------
+    function deleteMyUser() external userExists(msg.sender) {
+        delete users[msg.sender];
+        userExistsMap[msg.sender] = false;
+        emit UserDeleted(msg.sender);
     }
 }
